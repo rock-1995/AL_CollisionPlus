@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework><AssemblyName>AL_CollisionPlus</AssemblyName><Version>0.1.11</Version>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>disable</Nullable><CheckEolTargetFramework>false</CheckEolTargetFramework><NuGetAudit>false</NuGetAudit>
+    <GameDir Condition="'$(GameDir)' == ''">E:\as</GameDir>
+    <InteropDir>$(GameDir)\BepInEx\interop-AmanatsuLocation\interop</InteropDir><CoreDir>$(GameDir)\BepInEx\core</CoreDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(InteropDir)\*.dll"><Private>false</Private></Reference>
+    <Reference Include="$(CoreDir)\BepInEx.Core.dll;$(CoreDir)\BepInEx.Unity.IL2CPP.dll;$(CoreDir)\BepInEx.Unity.Common.dll;$(CoreDir)\Il2CppInterop.Runtime.dll;$(CoreDir)\Il2CppInterop.Common.dll;$(CoreDir)\0Harmony.dll"><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

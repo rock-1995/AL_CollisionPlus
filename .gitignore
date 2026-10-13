@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+*.user
+*.suo
+*.log
+*.dll
+*.pdb
+*.zip
+latest-mesh.json
+.vs/
