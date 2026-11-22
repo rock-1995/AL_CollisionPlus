@@ -1,45 +1,48 @@
 # AL Collision Plus
 
-Soft breast collisions for **AmanatsuLocation**, using the game's existing body collision surfaces. Contact allows a small amount of compression, then moves the breast smoothly away from the surface.
+**Version 0.2.0** — breast collision for **AmanatsuLocation**, using the game's existing **MagicaCloth2 BoneSpring** solver.
 
-[Download](https://github.com/rock-1995/AL_CollisionPlus/releases/latest) · [Parameter reference](docs/CONFIGURATION.md) · [Changelog](CHANGELOG.md)
+[Download](https://github.com/rock-1995/AL_CollisionPlus/releases/latest) · [Settings](docs/CONFIGURATION.md) · [Changelog](CHANGELOG.md) · [Build and validation](docs/DEVELOPMENT.md)
 
-Requires **BepInEx 6 for IL2CPP**. AL Pregnancy is optional; when present, collision follows its deformed body collision mesh.
+## Installation
+
+Requires BepInEx 6 for IL2CPP. Exit the game and extract the release ZIP into the game directory. Restart after installation so breast teams are initialized with collision enabled.
+
+AL Pregnancy is optional. If installed, use **[AL Pregnancy 0.3.4](https://github.com/rock-1995/AL_Pregnancy.dll/releases/tag/0.3.4)** or a compatible later version providing the native collision input bridge. Older pregnancy versions cannot refresh an inactive belly collision mesh for this plugin.
 
 ## Controls
 
-Settings are available through your BepInEx configuration manager or `BepInEx/config/local.al.collisionplus.cfg`.
+Use your BepInEx configuration manager or `BepInEx/config/local.al.collisionplus.cfg`.
 
 | Setting | Effect |
 | --- | --- |
-| `Enabled` | Master switch. Turning it off removes this plugin's added displacement. |
-| `BreastAbdomen` | Breast–abdomen contact, including a pregnant belly. |
-| `BreastBody` | Breast contact with other body parts, including the opposite breast. Abdomen contact remains controlled separately. |
-| `BreastGround` | Breast contact with the ground and upward-facing scene surfaces. |
+| `Enabled` | Master switch. Turning it off removes this plugin's added collider references and restores the breast parameters it changed. |
+| `BreastAbdomen` | Breast–abdomen contact, including pregnancy deformation. |
+| `BreastBody` | Breast contact with other body parts and other characters' native body colliders. Own breast colliders are excluded to avoid feedback. |
+| `BreastGround` | Breast contact with nearby upward-facing scene surfaces. |
 
 All three contact types are enabled by default. For abdomen contact only, leave `BreastAbdomen` on and turn the other two off.
 
-Only breast physics roots are moved. The plugin does not move the abdomen, legs or hair, and does not add hair collisions.
-
-## Adjusting contact
-
-Each contact type has its own settings. Names begin with `BreastAbdomen`, `BreastBody` or `BreastGround`.
-
-| To change… | Adjust… |
-| --- | --- |
-| Overall effect | `Strength` — lower values soften the correction; zero disables its contribution. |
-| Allowed soft overlap | `CompressionHeightRatio` — higher values allow more compression before correction begins. |
-| How gently contact starts | `SoftTransitionHeightRatio` — higher values make onset softer. |
-| Maximum breast movement | `MaxOffsetHeightRatio` — limits the added displacement. |
-| Speed of movement | `MaxSpeedHeightRatio` and `ResponsePerSecond` — lower values move and return more slowly. |
-
-`HeightRatio` distances are relative to character height: `0.01` means 1%. Search distance controls how deeply overlapping surfaces can be found; it is not an extra gap around the body.
+`BreastRadiusHeightRatio` adjusts native breast collision-point radius; `0.012` means 1.2% of character height. `CollisionLimitHeightRatio` adjusts the spring's sphere-contact distance limit. See the [settings reference](docs/CONFIGURATION.md) before tuning.
 
 ## Contact behavior
 
-- Small overlaps are intentional to approximate soft compression. This is a bone-based correction, not a full soft-body simulation.
-- When several types touch at once, their corrections share a displacement limit rather than stacking three full offsets.
-- Ground contact requires a scene collider and actual penetration. Character colliders, triggers and walls are excluded. A surface above the entire breast is not treated as support beneath it.
-- Deep penetration beyond the configured search or movement limits may remain. Clothing is not used as a separate collision surface.
+Five spheres follow the low-detail abdomen shape. Other body contact uses existing native body colliders. A small number of downward ground queries supplies native plane colliders. The game's solver moves the breast bones; this plugin does not run the old triangle-contact solver or write additional breast-bone offsets.
 
-There is no status overlay or periodic diagnostic output during normal use.
+Only moving `bust02` and tip points are newly enabled for collision. The torso-attached breast root keeps its original eligibility. The abdomen, legs, and hair are not driven by this plugin.
+
+Liquid collision remains in AL Pregnancy's existing SkinnedCollisionHelper/Obi path. Its new bridge also refreshes belly inputs when liquid collision objects are inactive, without enabling those objects or submitting extra liquid meshes.
+
+## Upgrading from 0.1.x
+
+The master and three contact switches, character limit, ground mask, and ground-normal setting retain existing values. Old strength, compression, coverage, contact-iteration, response, speed, and added-offset settings no longer control this version. Native parameters have new keys.
+
+Native spheres/capsules approximate the surface; contact differs from the old triangle-based correction. Extreme body shapes or poses may still clip. A scene collider is required for ground contact. Pregnancy shape comes from the most recently completed deformation; game update ordering can make this the previous completed pose.
+
+Keep the previous DLL and configuration to compare or roll back. Replace DLLs only with the game closed.
+
+## Diagnostics
+
+`Diagnostics` and `ShowStatusOverlay` are off by default. The log reports `Native breast collision ready` after checking built-team collision attributes, or `Native breast collision unavailable` with a reason. Diagnostic preparation timings exclude the native solver and total frame time.
+
+Offline geometry and binding tests pass, and the user reported a successful trial. No quantified game FPS improvement or comprehensive pose/garment compatibility is claimed.
