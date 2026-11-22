@@ -1,27 +1,19 @@
-# Development
+# Build and validation
 
-The plugin targets .NET 6 and references the game's locally generated IL2CPP interop assemblies. Game files, interop assemblies and captured meshes are not distributed in this repository.
-
-Build with a .NET SDK and a local game directory:
+The plugin targets .NET 6 and uses local game/BepInEx interop assemblies. Game, Unity, MagicaCloth, and BepInEx dependencies are not distributed here.
 
 ```powershell
-dotnet build src/AL_CollisionPlus.csproj -c Release -p:GameDir="C:\Games\AmanatsuLocation"
+dotnet build src/AL_CollisionPlus.csproj -c Release -p:GameDir='D:\Games\AmanatsuLocation'
+dotnet run --project tests/NativeMathTests.csproj -c Release
+dotnet run --project tests/BindingTests/BindingTests.csproj -c Release
 ```
 
-The expected local layout is `BepInEx/core` and `BepInEx/interop-AmanatsuLocation/interop` beneath that directory.
+`AL_GAME_DIR` can replace `GameDir`. The build prefers `BepInEx/interop-AmanatsuLocation/interop`, falling back to `BepInEx/interop`; `InteropDir` can be supplied explicitly.
 
-Offline geometry checks use .NET 10:
+The initialization hook adds `bust02` and tip transforms to `collisionBones` before setup data is built. Completed proxy attributes are checked before obstacles are added. Updates run before the common `ClothManager.ClothUpdate` boundary, leaving transform capture, integration, and response to MagicaCloth. Active native job arrays are not modified.
 
-```powershell
-dotnet run --project tests/Tests.csproj -c Release
-```
+Geometry tests compile production fit code and cover transforms, scale, growth, invalid inputs, and steady-state allocation. Binding tests compile production ownership logic with native-access doubles and cover list changes, ownership, restoration, and scale. They do not execute IL2CPP hooks, build real native teams, or validate visual contact.
 
-The binding checks compile the production binding and runtime code with host API substitutes. They also require a compatible, locally captured AL Pregnancy mesh snapshot:
+The paired DLLs compiled against the target installation with zero warnings/errors. A user trial was reported successful. No measured FPS gain is asserted. Private character captures and workstation paths are excluded from public tests/releases.
 
-```powershell
-dotnet run --project binding-tests/BindingTests.csproj -c Release -- "C:\LocalData\latest-mesh.json"
-```
-
-`reference/Geometry018.cs` is an isolated development-version solver used only for numerical regression checks. It is not compiled into the plugin.
-
-Performance measurements from this harness exclude real Unity/IL2CPP call costs and cannot be treated as an in-game frame-rate measurement. Runtime diagnostic logs report this plugin's collision-pass CPU time, not total frame time.
+See [MagicaSoft's BoneSpring collision documentation](https://magicasoft.jp/en/mc2_magicacloth_collidercollision/) for native behavior.

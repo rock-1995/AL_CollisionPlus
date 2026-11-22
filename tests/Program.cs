@@ -1,97 +1,105 @@
-using ALCollisionPlus;
 using System.Numerics;
+using ALCollisionPlus;
 
 int checks=0;
-void Check(bool valid,string message){checks++;if(!valid)throw new Exception(message);}
-void Near(Vector3 a,Vector3 b,string message,float tolerance=1e-5f)=>Check(Vector3.Distance(a,b)<tolerance,$"{message}: {a} != {b}");
-var settings=new ContactSettings(.003126201f,.09859826f,1,.0013973799f,.2f,.30131006f,.003f,.103777304f,.77074236f,float.PositiveInfinity,8,8,.06f);
-var contacts=new List<FrozenContact>();
-for(int mask=0;mask<8;mask++)
+void Check(bool success,string message)
 {
-    var switches=new Switches((mask&1)!=0,(mask&2)!=0,(mask&4)!=0);
-    foreach(Region source in Enum.GetValues<Region>())foreach(Region target in Enum.GetValues<Region>())
+    checks++;
+    if(!success) throw new Exception(message);
+}
+bool Close(float a,float b,float tolerance=2e-4f)=>MathF.Abs(a-b)<tolerance;
+void Near(Vector3 a,Vector3 b,string message,float tolerance=2e-4f)=>Check(Vector3.Distance(a,b)<tolerance,message+$"; {a} vs {b}");
+Vector3[] Ellipsoid(float width,float height,float depth,float z=0)
+{
+    var points=new List<Vector3>();
+    for(int y=0;y<=40;y++)
     {
-        bool expected=source==Region.Breast && (target==Region.Abdomen?switches.BreastAbdomen:switches.BreastBody);
-        Check((switches.Pair(source,target)!=ContactKind.None)==expected,"independent region routing");
-        Check(switches.Source(source)==(source==Region.Breast && mask!=0),"only breast can be written");
+        float theta=MathF.PI*y/40, radial=MathF.Sin(theta);
+        for(int a=0;a<64;a++)
+        {
+            float angle=MathF.Tau*a/64;
+            points.Add(new Vector3(width*radial*MathF.Cos(angle),height*MathF.Cos(theta),z+depth*radial*MathF.Sin(angle)));
+        }
     }
+    return points.ToArray();
 }
-SurfaceTree Plane(Region region,float y=0)
+(Vector3[] Centers,float[] Radii) Fit(Vector3[] points)
 {
-    var vertices=new[]{new Vector3(-1,y,-1),new Vector3(0,y,1),new Vector3(1,y,-1)};
-    var indices=new[]{0,1,2};var tree=new SurfaceTree(vertices,indices,new[]{region});
-    RegressionAdapter.Register(tree,indices);return tree;
+    var centers=new Vector3[NativeBellyFit.SphereCount];
+    var radii=new float[NativeBellyFit.SphereCount];
+    Check(NativeBellyFit.TryFit(points,centers,radii),"Valid ellipsoid rejected");
+    var min=new Vector3(float.PositiveInfinity); var max=new Vector3(float.NegativeInfinity);
+    foreach(var p in points){min=Vector3.Min(min,p);max=Vector3.Max(max,p);}
+    for(int i=0;i<radii.Length;i++)
+    {
+        float r=radii[i];var c=centers[i];
+        Check(float.IsFinite(r)&&r>0&&float.IsFinite(c.LengthSquared()),"Finite positive sphere expected");
+        Check(c.X-r>=min.X-1e-4f&&c.X+r<=max.X+1e-4f,"X sphere overreach");
+        Check(c.Y-r>=min.Y-1e-4f&&c.Y+r<=max.Y+1e-4f,"Y sphere overreach");
+        Check(c.Z-r>=min.Z-1e-4f&&c.Z+r<=max.Z+1e-4f,"Z sphere overreach");
+    }
+    return(centers,radii);
 }
-ContactProbe[] Probes(float depth)=>new[]{new ContactProbe(new(0,-depth,0),1),new ContactProbe(new(.1f,.2f,0),1),new ContactProbe(new(-.1f,.2f,0),1)};
-var abdomen=Plane(Region.Abdomen);var body=Plane(Region.Other);
-ContactResult Solve(ContactKind kind,ContactProbe[] probes,ContactSettings? tuning=null,bool excluded=false)
-    =>ContactProjection.Solve(probes,new[]{new ContactTarget(kind==ContactKind.BreastAbdomen?abdomen:body,new[]{excluded})},kind,tuning??settings,contacts,
-        (p,c)=>new GroundContact(new(p.X,0,p.Z),Vector3.UnitY));
-foreach(var kind in new[]{ContactKind.BreastAbdomen,ContactKind.BreastBody,ContactKind.BreastGround})
-{
-    Check(Solve(kind,Probes(-.00001f)).Offset==Vector3.Zero,$"{kind}: positive gap never triggers correction");
-    Check(Solve(kind,Probes(.001f)).Offset==Vector3.Zero,$"{kind}: allowed compression stays soft");
-    var hit=Solve(kind,Probes(.04f));
-    Check(hit.Offset.Y>.038f && hit.Offset.X==0 && hit.Offset.Z==0,$"{kind}: genuine penetration produces outward correction");
-    Near(Solve(kind,Probes(.04f),settings with{Strength=.2f}).Offset,hit.Offset*.2f,$"{kind}: strength applied once");
-    Near(Solve(kind,Probes(.04f).Concat(Probes(.04f)).Reverse().ToArray()).Offset,hit.Offset,$"{kind}: density/order invariant");
-    Check(Solve(kind,Probes(.04f),settings with{Strength=0}).Offset==Vector3.Zero,$"{kind}: strength zero");
-    if(kind!=ContactKind.BreastGround)Check(Solve(kind,Probes(.04f),excluded:true).Offset==Vector3.Zero,$"{kind}: own skin excluded");
-}
-Check(Solve(ContactKind.BreastGround,new[]{new ContactProbe(new(0,-.03f,0),1)}).Offset==Vector3.Zero,"entire breast below an overhead platform must not be pulled toward it");
-var ground=ContactProjection.Solve(Probes(.04f),Array.Empty<ContactTarget>(),ContactKind.BreastGround,settings,contacts,(p,c)=>new GroundContact(Vector3.Zero,Vector3.UnitX));
-Check(ground.Offset==Vector3.Zero,"wall is not ground");
-// Nearest eligible target must never let the new body toggle replace disabled abdomen.
-var wrong=ContactProjection.Solve(Probes(.04f),new[]{new ContactTarget(abdomen,null)},ContactKind.BreastBody,settings,contacts);
-Check(wrong.Offset==Vector3.Zero,"body solver excludes abdomen regardless of geometry");
-var beyondEdge=Probes(.04f).Select(p=>p with{Position=p.Position+new Vector3(4,0,0)}).ToArray();
-Check(Solve(ContactKind.BreastBody,beyondEdge,settings with{Capture=10}).Offset==Vector3.Zero,"no open-face extension at distant body edges");
 
-// Compare against the actual 0.1.8 implementation, including enabled guard,
-// low influence, search limits, partial coverage and curved contact normals.
-var random=new Random(981);
-int regressions=0,nonzero=0;
-for(int scene=0;scene<100;scene++)
+var normal=Ellipsoid(1.1f,1.4f,.7f); var pregnant=Ellipsoid(1.4f,1.5f,1.2f,.5f);
+var before=Fit(normal);var after=Fit(pregnant);
+Check(after.Centers.Zip(after.Radii,(c,r)=>c.Z+r).Max()>before.Centers.Zip(before.Radii,(c,r)=>c.Z+r).Max()+.7f,
+    "Pregnancy growth did not advance front surface");
+var shifted=normal.Select(p=>p+new Vector3(5,-3,2)).ToArray();var moved=Fit(shifted);
+for(int i=0;i<before.Radii.Length;i++)
 {
-    var vertices=new List<Vector3>();var triangles=new List<int>();var regions=new List<Region>();
-    for(int face=0;face<24;face++)
+    Near(moved.Centers[i],before.Centers[i]+new Vector3(5,-3,2),"Fit translation covariance");
+    Check(Close(moved.Radii[i],before.Radii[i]),"Translation changes radius");
+}
+foreach(float scale in new[]{.01f,.5f,2f,100f})
+{
+    var scaled=Fit(normal.Select(p=>p*scale).ToArray());
+    for(int i=0;i<before.Radii.Length;i++)
     {
-        float angle=(face-12)*.09f;var rotation=Matrix4x4.CreateRotationZ(angle);
-        var center=new Vector3((face-12)*.025f,random.NextSingle()*.02f,0);
-        foreach(var v in new[]{new Vector3(-.04f,0,-.1f),new Vector3(0,0,.1f),new Vector3(.04f,0,-.1f)})
-        {triangles.Add(vertices.Count);vertices.Add(Vector3.TransformNormal(v,rotation)+center);}
-        regions.Add(face%4==0?Region.Other:Region.Abdomen);
-    }
-    var tree=new SurfaceTree(vertices.ToArray(),triangles.ToArray(),regions.ToArray());RegressionAdapter.Register(tree,triangles.ToArray());
-    var targets=new[]{new ContactTarget(tree,null)};
-    var probes=Enumerable.Range(0,80).Select(i=>new ContactProbe(new((random.NextSingle()-.5f)*.5f,(random.NextSingle()-.45f)*.18f,0),.15f+random.NextSingle()*.85f)).ToArray();
-    foreach(float strength in new[]{.2f,1f})foreach(int passes in new[]{1,8,16})foreach(float guard in new[]{float.PositiveInfinity,0f,.007f})
-    {
-        var s=settings with{Strength=strength,Iterations=passes,ConflictTolerance=guard};
-        var current=ContactProjection.Solve(probes,targets,ContactKind.BreastAbdomen,s,contacts).Offset;
-        var old=RegressionAdapter.OldAbdomen(probes,targets,s);
-        Near(current,old,"abdomen numerical compatibility",1e-6f);regressions++;if(current.Length()>1e-6f)nonzero++;
+        Near(scaled.Centers[i],before.Centers[i]*scale,"Fit scale covariance",.001f);
+        Check(Close(scaled.Radii[i],before.Radii[i]*scale,.001f),"Scaled radius mismatch");
     }
 }
-Check(nonzero>100,"regression comparison must exercise actual corrections");
 
-// Three types must not triple the displacement for one direction, and
-// contradictory proposals must remain finite and cancel without attraction.
-ContactResult Result(Vector3 p)=>new(p,1,1,1,p.Length());
-Near(ContactProjection.Merge(new[]{Result(new(0,.04f,0)),Result(new(0,.04f,0)),Result(new(0,.04f,0))},.1f),new(0,.04f,0),"duplicate directions never multiply displacement");
-Near(ContactProjection.Merge(new[]{Result(new(0,.04f,0)),Result(new(0,-.04f,0))},.1f),Vector3.Zero,"opposed proposals cancel");
-var merged=ContactProjection.Merge(new[]{Result(new(0,.1f,0)),Result(new(.1f,0,0))},.1f);
-Check(merged.Length()<=.100001f && merged.X>0 && merged.Y>0,"combined cap is shared, both valid directions retained");
-foreach(int fps in new[]{30,60,144})
+foreach(var rotation in new[]{Quaternion.Identity,Quaternion.CreateFromYawPitchRoll(.6f,1.2f,.3f),Quaternion.CreateFromAxisAngle(Vector3.UnitX,MathF.PI/2)})
+foreach(var scale in new[]{Vector3.One,new Vector3(.7f,1.3f,2.1f),new Vector3(-1,2,1)})
 {
-    var current=Vector3.Zero;
-    for(int frame=0;frame<fps*10;frame++)
+    var matrix=Matrix4x4.CreateScale(scale)*Matrix4x4.CreateFromQuaternion(rotation)*Matrix4x4.CreateTranslation(12,4,-7);
+    Check(NativeBellyFit.TryCreateFrame(matrix,out var frame,out var inverse),"Valid transformed frame rejected");
+    var x=Vector3.TransformNormal(Vector3.UnitX,frame); var y=Vector3.TransformNormal(Vector3.UnitY,frame); var z=Vector3.TransformNormal(Vector3.UnitZ,frame);
+    Check(Close(x.Length(),1)&&Close(y.Length(),1)&&Close(z.Length(),1),"Frame retained nonuniform scale");
+    Check(Close(Vector3.Dot(x,y),0)&&Close(Vector3.Dot(y,z),0)&&Close(Vector3.Dot(z,x),0),"Frame not orthogonal");
+    foreach(var p in new[]{Vector3.Zero,Vector3.One,new Vector3(3,-2,4)})
+        Near(Vector3.Transform(Vector3.Transform(p,frame),inverse),p,"Frame inverse round trip");
+    // A world rotation/translation of a completed shape must not alter local spheres,
+    // including a 90 degree lying pose. This exercises the real frame helper.
+    var world=normal.Select(p=>Vector3.Transform(p,matrix)).ToArray();
+    var local=world.Select(p=>Vector3.Transform(p,inverse)).ToArray();
+    var poseFit=Fit(local);
+    var canonical=Fit(normal.Select(p=>p*new Vector3(MathF.Abs(scale.X),MathF.Abs(scale.Y),MathF.Abs(scale.Z))).ToArray());
+    for(int i=0;i<before.Radii.Length;i++)
     {
-        var target=frame<fps*3?new Vector3(0,.1f,0):frame<fps*6?new Vector3(.1f,0,0):Vector3.Zero;
-        var next=Geometry.SmoothLimited(current,target,1-MathF.Exp(-8f/fps),.06f/fps,.09859826f);
-        Check(Vector3.Distance(next,current)<=.06f/fps+1e-6f,"movement rate bound across contact changes");
-        Check(next.Length()<=.098599f,"overall displacement bound");current=next;
+        Near(poseFit.Centers[i],canonical.Centers[i],"Lying/scaled pose changed anatomical fit",3e-4f);
+        Check(Close(poseFit.Radii[i],canonical.Radii[i],3e-4f),"Pose changed fitted radius");
     }
-    Check(current.Length()<1e-5f,"smooth return after separation");
 }
-Console.WriteLine($"PASS geometry: {checks} checks, {regressions} old/new abdomen comparisons ({nonzero} nonzero), all 8 switch combinations and 3 motion frame rates.");
+
+var scratchC=new Vector3[NativeBellyFit.SphereCount];var scratchR=new float[NativeBellyFit.SphereCount];
+Check(!NativeBellyFit.TryFit(Array.Empty<Vector3>(),scratchC,scratchR),"Empty shape accepted");
+Check(!NativeBellyFit.TryFit(Enumerable.Repeat(Vector3.One,20).ToArray(),scratchC,scratchR),"Zero-volume shape accepted");
+var bad=(Vector3[])normal.Clone();bad[123]=new Vector3(float.NaN,0,0);
+Check(!NativeBellyFit.TryFit(bad,scratchC,scratchR),"NaN shape accepted");
+bad[123]=new Vector3(float.PositiveInfinity,0,0);
+Check(!NativeBellyFit.TryFit(bad,scratchC,scratchR),"Infinite shape accepted");
+Check(!NativeBellyFit.TryCreateFrame(Matrix4x4.CreateScale(0),out _,out _),"Singular frame accepted");
+var badFrame=Matrix4x4.Identity;badFrame.M22=float.NaN;
+Check(!NativeBellyFit.TryCreateFrame(badFrame,out _,out _),"NaN frame accepted");
+Array.Fill(scratchC,new Vector3(7,8,9));Array.Fill(scratchR,123);
+Check(!NativeBellyFit.TryFit(bad,scratchC,scratchR),"Bad output commit test unexpectedly succeeded");
+Check(scratchC.All(c=>c==new Vector3(7,8,9))&&scratchR.All(r=>r==123),"Failed fit partially overwrote a previous valid result");
+for(int i=0;i<100;i++) NativeBellyFit.TryFit(normal,scratchC,scratchR);
+long allocBefore=GC.GetAllocatedBytesForCurrentThread();
+for(int i=0;i<100;i++) NativeBellyFit.TryFit(normal,scratchC,scratchR);
+Check(GC.GetAllocatedBytesForCurrentThread()==allocBefore,"Steady-state fit allocated managed memory");
+
+Console.WriteLine($"PASS: {checks} assertions against production NativeBellyFit. No Unity/Magica runtime is simulated or validated.");

@@ -3,6 +3,7 @@ using BepInEx.Configuration;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using MagicaCloth2;
+using UnityEngine;
 
 namespace ALCollisionPlus;
 
@@ -11,73 +12,73 @@ namespace ALCollisionPlus;
 [BepInProcess("AmanatsuLocation.exe")]
 public sealed class Plugin : BasePlugin
 {
-    public const string Id = "local.al.collisionplus", Version = "0.1.11";
-    internal static Plugin Instance = null!;
+    public const string Id = "local.al.collisionplus", Version = "0.2.0";
+    internal static Plugin Instance;
     private Harmony harmony;
     private CollisionDriver driver;
-    private UnityEngine.Events.UnityAction beforeRender;
-    private bool renderAuditAttached;
-    private sealed class HiddenSetting { public bool Browsable = false; }
-    internal ConfigEntry<bool> Enabled,BreastAbdomen,BreastBody,BreastGround,Diagnostics,ShowStatusOverlay;
-    internal ConfigEntry<int> MaxCharacters,GroundMask;
-    internal ContactConfig AbdomenConfig,BodyConfig,GroundConfig;
-    internal CollisionRuntime Runtime=null!;
-    internal bool TrackStatistics => Diagnostics.Value || ShowStatusOverlay.Value;
-    internal Switches Switches => new(BreastAbdomen.Value,BreastBody.Value,BreastGround.Value);
-    internal ContactSettings Settings(ContactKind kind,float height) =>
-        (kind==ContactKind.BreastAbdomen?AbdomenConfig:kind==ContactKind.BreastBody?BodyConfig:GroundConfig).Settings(height);
+    internal NativeCollisionRuntime Runtime;
+    internal ConfigEntry<bool> Enabled, BreastAbdomen, BreastBody, BreastGround, Diagnostics, ShowStatusOverlay;
+    internal ConfigEntry<int> MaxCharacters, GroundMask;
+    internal ConfigEntry<float> RadiusRatio, LimitRatio, GroundNormal;
+
     public override void Load()
     {
         Instance = this;
-        const string section="01 Switches / \u78b0\u649e\u5f00\u5173";
-        Enabled=Config.Bind(section,"Enabled",true,"Enable the plugin. Disabling it immediately clears added offsets and restores the original physics.");
-        BreastAbdomen=Config.Bind(section,"BreastAbdomen",true,"Breast–abdomen contact. Uses the established soft-contact model and settings, adjusting the breasts while leaving the abdomen in place.");
-        BreastBody=Config.Bind(section,"BreastBody",true,"Breast contact with other body parts. Uses the same soft-contact model and adjusts only the breasts. Excludes each breast's own skin and hair. The abdomen has a separate switch.");
-        BreastGround=Config.Bind(section,"BreastGround",true,"Breast contact with the ground and support surfaces. Applies a soft upward correction after penetration begins. Ignores platforms above a breast that is already entirely below the surface.");
-        AbdomenConfig=new(Config,"BreastAbdomen","02 Tuning / \u78b0\u649e\u53c2\u6570");
-        BodyConfig=new(Config,"BreastBody","02B Breast Body / \u80f8\u4e0e\u5176\u4ed6\u8eab\u4f53");
-        GroundConfig=new(Config,"BreastGround","02C Breast Ground / \u80f8\u4e0e\u5730\u9762",true);
-        MaxCharacters = Config.Bind("03 Performance / \u6027\u80fd", "MaxCharacters", 4, new ConfigDescription("Maximum number of loaded high-detail characters processed for collisions.", new AcceptableValueRange<int>(1,12)));
-        GroundMask = Config.Bind("04 Advanced / \u9ad8\u7ea7", "GroundLayerMask", -5, "Unity scene layer mask. Defaults to all layers except IgnoreRaycast. Character colliders and triggers are excluded automatically.");
-        Diagnostics = Config.Bind("04 Advanced / \u9ad8\u7ea7", "Diagnostics", false, new ConfigDescription("Developer diagnostics. Disabled in normal use.",null,new HiddenSetting()));
-        ShowStatusOverlay=Config.Bind("04 Advanced / \u9ad8\u7ea7","ShowStatusOverlay",false,new ConfigDescription("Developer status overlay. Disabled in normal use.",null,new HiddenSetting()));
-        Runtime = new CollisionRuntime(this);
-        Config.SettingChanged += OnSettingChanged;
-        driver = AddComponent<CollisionDriver>();
-        beforeRender = (Action)(() => Runtime?.ObserveBeforeRender());
-        UpdateDiagnostics();
+        const string switches = "01 Switches / \u78b0\u649e\u5f00\u5173";
+        Enabled = Config.Bind(switches, "Enabled", true, "Enable native collisions. Disabling restores the original breast physics settings and removes colliders added by this plugin.");
+        BreastAbdomen = Config.Bind(switches, "BreastAbdomen", true, "Breast–abdomen contact. Feeds spheres that follow the belly shape into the game's breast spring solver.");
+        BreastBody = Config.Bind(switches, "BreastBody", true, "Breast contact with other body parts. Uses the character's existing native colliders.");
+        BreastGround = Config.Bind(switches, "BreastGround", true, "Breast–ground contact. Finds support surfaces near the breasts and lets native plane colliders handle the response.");
+        RadiusRatio = Config.Bind("02 Native Physics / \u539f\u751f\u7269\u7406", "BreastRadiusHeightRatio", .012f,
+            new ConfigDescription("Native breast contact radius as a fraction of character height. This applies to the native sphere colliders.", new AcceptableValueRange<float>(.001f, .05f)));
+        LimitRatio = Config.Bind("02 Native Physics / \u539f\u751f\u7269\u7406", "CollisionLimitHeightRatio", .06f,
+            new ConfigDescription("Native BoneSpring sphere collision displacement limit as a fraction of character height. Capsules and planes still use the game's spring limits.", new AcceptableValueRange<float>(.001f, .15f)));
+        MaxCharacters = Config.Bind("03 Performance / \u6027\u80fd", "MaxCharacters", 4,
+            new ConfigDescription("Maximum number of loaded high-detail characters to attach colliders to.", new AcceptableValueRange<int>(1, 12)));
+        GroundMask = Config.Bind("04 Advanced / \u9ad8\u7ea7", "GroundLayerMask", -5, "Unity layer mask for ground queries. Excludes characters and triggers.");
+        GroundNormal = Config.Bind("02C Breast Ground / \u80f8\u4e0e\u5730\u9762", "BreastGroundMinNormalY", .35f,
+            new ConfigDescription("Minimum upward component of a support surface normal. Uses the existing configuration value.", new AcceptableValueRange<float>(.05f, 1)));
+        Diagnostics = Config.Bind("04 Advanced / \u9ad8\u7ea7", "Diagnostics", false, "Log native collider counts and preparation times for in-game diagnostics.");
+        ShowStatusOverlay = Config.Bind("04 Advanced / \u9ad8\u7ea7", "ShowStatusOverlay", false, "Show native collision attachment status.");
+        try
+        {
+        Runtime = new NativeCollisionRuntime(this);
         harmony = new Harmony(Id);
-        harmony.Patch(typeof(ClothManager).GetMethod(nameof(ClothManager.OnEarlyClothUpdate)), prefix: new HarmonyMethod(typeof(Plugin), nameof(BeforePhysics)));
-        harmony.Patch(typeof(ClothManager).GetMethod(nameof(ClothManager.ClothUpdate)), prefix: new HarmonyMethod(typeof(Plugin), nameof(BeforeSolve)));
-        // OnAfterLateUpdate runs even when the game simulates in BeforeLateUpdate.
-        // Its postfix is after Human.LateUpdate (pregnancy) AND Magica's late solver.
-        harmony.Patch(typeof(ClothManager).GetMethod(nameof(ClothManager.OnAfterLateUpdate)), postfix: new HarmonyMethod(typeof(Plugin), nameof(AfterPhysics)));
-        Log.LogInfo($"AL Collision Plus {Version} loaded.");
+        NativeSpringBinding.Install(harmony, message => Log.LogInfo("[Native spring] " + message));
+        // The previous solve completes its jobs before returning. This common boundary
+        // works for both BeforeLateUpdate and AfterLateUpdate game configurations.
+        harmony.Patch(AccessTools.Method(typeof(ClothManager), nameof(ClothManager.ClothUpdate)),
+            prefix: new HarmonyMethod(typeof(Plugin), nameof(BeforeNativeSolve)) { priority = Priority.First });
+        driver = AddComponent<CollisionDriver>();
+        Log.LogInfo($"AL Collision Plus {Version}: native BoneSpring collision enabled; no managed triangle solver or bone offsets. Pregnancy fluid collision remains native.");
+        }
+        catch
+        {
+            Unload();
+            throw;
+        }
     }
 
-    internal void UpdateDiagnostics()
-    {
-        bool enabled=TrackStatistics;
-        if(enabled==renderAuditAttached || beforeRender==null)return;
-        if(enabled)UnityEngine.Application.add_onBeforeRender(beforeRender);
-        else UnityEngine.Application.remove_onBeforeRender(beforeRender);
-        renderAuditAttached=enabled;
-    }
-
-    private static void BeforePhysics() => Instance?.Runtime?.Restore();
-    private static void BeforeSolve() => Instance?.Runtime?.Restore();
-    private static void AfterPhysics() => Instance?.Runtime?.Step();
-    private void OnSettingChanged(object sender, SettingChangedEventArgs e)
-    {
-        // Config may reload on a file watcher thread: never access Unity objects here.
-        if(Diagnostics.Value && e.ChangedSetting.Definition.Section.StartsWith("01",StringComparison.Ordinal))
-            Log.LogInfo($"[Control input] {e.ChangedSetting.Definition.Key}={e.ChangedSetting.BoxedValue}; queued for main-thread confirmation.");
-    }
+    private static void BeforeNativeSolve() => Instance?.Runtime?.Step();
     public override bool Unload()
     {
-        Config.SettingChanged -= OnSettingChanged;
-        if(renderAuditAttached)UnityEngine.Application.remove_onBeforeRender(beforeRender);
-        if(driver!=null)UnityEngine.Object.Destroy(driver);
-        Runtime?.Dispose(); harmony?.UnpatchSelf(); Instance=null; return true;
+        Runtime?.Dispose();
+        harmony?.UnpatchSelf();
+        if (driver != null) UnityEngine.Object.Destroy(driver);
+        NativeSpringBinding.ClearState();
+        Instance = null;
+        return true;
+    }
+}
+
+public sealed class CollisionDriver : MonoBehaviour
+{
+    public CollisionDriver(IntPtr pointer) : base(pointer) { }
+    public void Update() => Plugin.Instance?.Runtime?.PollDisabled();
+    public void OnGUI()
+    {
+        var plugin = Plugin.Instance;
+        if (plugin == null || !plugin.ShowStatusOverlay.Value || plugin.Runtime == null) return;
+        GUI.Box(new Rect(12, 12, 740, 54), plugin.Runtime.Status);
     }
 }
