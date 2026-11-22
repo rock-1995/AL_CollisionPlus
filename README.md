@@ -8,7 +8,7 @@
 
 Requires BepInEx 6 for IL2CPP. Exit the game and extract the release ZIP into the game directory. Restart after installation so breast teams are initialized with collision enabled.
 
-AL Pregnancy is optional. If installed, use **[AL Pregnancy 0.3.4](https://github.com/rock-1995/AL_Pregnancy.dll/releases/tag/0.3.4)** or a compatible later version providing the native collision input bridge. Older pregnancy versions cannot refresh an inactive belly collision mesh for this plugin.
+AL Pregnancy is optional. If installed, use **[AL Pregnancy 0.3.5](https://github.com/rock-1995/AL_Pregnancy.dll/releases/tag/0.3.5)** or a compatible later version providing the native collision input bridge. Older pregnancy versions cannot refresh an inactive belly collision mesh for this plugin.
 
 ## Controls
 
