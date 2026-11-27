@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7
+
+- Reuse native array wrappers during belly skinning and remove temporary arrays from breast sphere searches.
+- Carry forward the 0.3.x body, palm, ground, and one-way hair contacts. Settings and collision response match 0.3.6.
+- In a single-character Unity test scene, contact preparation fell from about 0.50 to 0.29 ms per frame.
+
 ## 0.2.0
 
 - Move breast collision response to the game's existing MagicaCloth2 BoneSpring solver; remove the managed triangle-contact solver and additional bone-offset pass.

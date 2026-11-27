@@ -12,8 +12,9 @@ MagicaCloth Make()=>new(){Process=new()};
 bool Prepare(MagicaCloth cloth,string bone="cf_j_bust01_L",ClothProcess.ClothType type=ClothProcess.ClothType.BoneSpring)
 {
     cloth.Process.cloth=cloth;
-    var root=new Transform(){name=bone};var child=new Transform(){name="cf_j_bust02_L"};child.children.Add(new(){name="cf_y_bust02_tip_L"});root.children.Add(child);
+    var root=new Transform(){name=bone};var child=new Transform(){name="cf_j_bust02_L",position=new(.4f,0,0)};child.children.Add(new(){name="cf_y_bust02_tip_L",position=new(1,0,0)});root.children.Add(child);
     var roots=new NT();roots.Add(root);
+    cloth.SerializeData.rootBones=roots;
     var args=new object[]{cloth.Process,type,roots,cloth.SerializeData.colliderCollisionConstraint.collisionBones,false};
     Call("BeforeCreate",args);
     bool prepared=(bool)args[4];
@@ -26,7 +27,10 @@ var other=Make();Check(!Prepare(other,"cf_j_arm01_L"),"Nonbreast team modified")
 Check(other.SerializeData.colliderCollisionConstraint.collisionBones.Count==0,"Nonbreast collision bones were changed");
 var cloth=Make();var userBone=new Transform(){name="existing"};cloth.SerializeData.colliderCollisionConstraint.collisionBones.Add(userBone);
 Check(Prepare(cloth),"Breast hook did not prepare");
-Check(cloth.SerializeData.colliderCollisionConstraint.collisionBones.Count==3,"Original collision bone not retained");
+Check(cloth.SerializeData.colliderCollisionConstraint.collisionBones.Count==2,"Original collision bone not retained or extra tip sphere enabled");
+Check(cloth.SerializeData.colliderCollisionConstraint.collisionBones.Contains(cloth.SerializeData.rootBones[0]) &&
+    !cloth.SerializeData.colliderCollisionConstraint.collisionBones.Contains(cloth.SerializeData.rootBones[0].GetChild(0)),
+    "Offset contact must select the root that translates the breast, not the downstream point");
 var nativeCollider=new ColliderComponent();var ownA=new ColliderComponent();var ownB=new ColliderComponent();
 cloth.SerializeData.colliderCollisionConstraint.colliderList.Add(nativeCollider);
 var originalRadius=cloth.SerializeData.radius;var originalLimit=cloth.SerializeData.colliderCollisionConstraint.limitDistance;
@@ -40,6 +44,11 @@ using(var binding=new NativeSpringBinding(cloth))
     int changes=cloth.ParameterChanges;
     binding.Apply(new(){nativeCollider,ownA},.2f,.8f);
     Check(cloth.ParameterChanges==changes,"Identical Apply caused repeated parameter refresh");
+    binding.Apply(new(){ownA,ownB},.2f,.8f);
+    binding.Apply(new(){ownB},.2f,.8f);
+    binding.Apply(new(){ownA,ownB},.2f,.8f);
+    var ordered=cloth.SerializeData.colliderCollisionConstraint.colliderList;
+    Check(ordered[0]==nativeCollider && ordered[1]==ownA && ordered[2]==ownB,"Contact reentry changed solver order or moved a native collider");
     binding.Apply(new(){ownB},.3f,.8f);
     Check(!cloth.SerializeData.colliderCollisionConstraint.colliderList.Contains(ownA)&&
           cloth.SerializeData.colliderCollisionConstraint.colliderList.Contains(nativeCollider)&&
@@ -52,6 +61,14 @@ using(var binding=new NativeSpringBinding(cloth))
     binding.Apply(new(){ownA},.3f,.8f);
     Check(MathF.Abs(cloth.SerializeData.radius.value-.15f)<1e-6f,"World radius not compensated for native team scale");
     MagicaManager.Team.teamDataArray[1]=new(){scaleRatio=1};
+    foreach(float disabledLimit in new[]{0f,-2f})
+    {
+        binding.Apply(new(){ownA},.3f,disabledLimit);
+        Check(cloth.SerializeData.colliderCollisionConstraint.limitDistance.value==0,"Nonpositive limit still restricts displacement");
+        Check(binding.AddedCount==1,"Disabling displacement limit removed collision");
+    }
+    binding.Apply(new(){ownA},.3f,5f);
+    Check(cloth.SerializeData.colliderCollisionConstraint.limitDistance.value==5f,"Positive out-of-slider limit not restored");
     var oldList=cloth.SerializeData.colliderCollisionConstraint.colliderList;
     var replacement=new NC();replacement.Add(nativeCollider);cloth.SerializeData.colliderCollisionConstraint.colliderList=replacement;
     binding.Apply(new(){ownB},.3f,.8f);
@@ -77,6 +94,21 @@ using(var binding=new NativeSpringBinding(invalidScale))
 {
     Check(!binding.Apply(new(){ownA},.2f,.8f),"Invalid scale accepted");
     Check(invalidScale.SerializeData.colliderCollisionConstraint.colliderList.Count==0&&binding.AddedCount==0&&invalidScale.ParameterChanges==0,"Invalid scale left partial collision registration");
+}
+MagicaManager.Team.teamDataArray[1]=new(){scaleRatio=1};
+var curved=Make();Prepare(curved);
+using(var binding=new NativeSpringBinding(curved))
+{
+    MagicaManager.Team.teamDataArray[1]=new(){scaleRatio=2};
+    binding.Apply(new(){ownA},.12f,.8f,.03f);
+    Check(MathF.Abs(curved.SerializeData.radius.Evaluate(.4f)*2-.12f)<1e-6f,"Middle radius changed by depth curve or native scale");
+    Check(MathF.Abs(curved.SerializeData.radius.Evaluate(1)*2-.03f)<1e-6f,"Tip radius changed by depth curve or native scale");
+    Check(binding.ParameterRevision==0,"Plugin's own parameter publication caused geometry invalidation");
+    int changes=curved.ParameterChanges;
+    for(int i=0;i<100;i++) binding.Apply(new(){ownA},.12f,.8f,.03f);
+    Check(curved.ParameterChanges==changes && binding.ParameterRevision==0,"Stable frames refreshed parameters/geometry");
+    curved.SetParameterChange();
+    Check(binding.ParameterRevision==1,"Native parameter update did not invalidate cached fit");
 }
 MagicaManager.Team.teamDataArray[1]=new(){scaleRatio=1};
 var disabled=Make();Prepare(disabled);disabled.Process.ProxyMeshContainer.shareVirtualMesh.attributes.Values=new byte[]{0x11,0x12};

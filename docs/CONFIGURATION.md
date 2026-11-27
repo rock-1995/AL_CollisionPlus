@@ -1,23 +1,22 @@
 # Configuration
 
-Settings are in `BepInEx/config/local.al.collisionplus.cfg` and a compatible BepInEx configuration manager.
+Open BepInEx Configuration Manager or edit `BepInEx/config/local.al.collisionplus.cfg`
+with the game closed.
 
-| Section / key | Default | Purpose |
+| Key | Default | Purpose |
 | --- | --- | --- |
-| 01 / `Enabled` | true | Enable the native collision bridge. |
-| 01 / `BreastAbdomen` | true | Supply abdomen colliders to breast teams. |
-| 01 / `BreastBody` | true | Supply other native body colliders. Own breast colliders are excluded. |
-| 01 / `BreastGround` | true | Supply nearby supporting scene planes. |
-| 02 Native Physics / `BreastRadiusHeightRatio` | 0.012 | Moving breast collision-point radius relative to height; range 0.001–0.05. |
-| 02 Native Physics / `CollisionLimitHeightRatio` | 0.06 | BoneSpring sphere-contact limit relative to height; range 0.001–0.15. |
-| 02C / `BreastGroundMinNormalY` | 0.35 | Minimum upward surface-normal component; range 0.05–1. Existing values are retained. |
-| 03 / `MaxCharacters` | 4 | Maximum loaded high-detail characters; range 1–12. |
-| 04 / `GroundLayerMask` | -5 | Unity layer mask; character colliders and triggers are excluded separately. |
-| 04 / `Diagnostics` | false | Log binding and preparation statistics. |
-| 04 / `ShowStatusOverlay` | false | Display native binding status. |
+| `Enabled` | true | Enable the plugin. Turning it off detaches added colliders and restores the original breast settings. |
+| `BreastAbdomen` | true | Contact with the abdomen, including pregnancy belly inputs. |
+| `BreastBody` | true | Contact with arms, palms, legs, and other characters' breasts. |
+| `BreastGround` | true | Contact with nearby supporting surfaces. |
+| `BreastHair` | true | Allow breasts to push hair in one direction. |
+| `BreastRadiusScale` | 1 | Scale the breast spheres fitted to the body mesh. Values at or below zero disable added collision. |
+| `CollisionLimitHeightRatio` | 0.06 | Limit the combined correction as a fraction of height. Values at or below zero remove this limit. |
+| `BreastGroundMinNormalY` | 0.35 | Minimum upward component of a support-surface normal. |
+| `MaxCharacters` | 4 | Number of loaded high-detail characters to process. Values at or below zero disable added collision. |
+| `GroundLayerMask` | -5 | Unity layer mask for ground queries. Characters and triggers are excluded. |
+| `Diagnostics` | false | Log contact processing and measured displacement every five seconds. |
+| `ShowStatusOverlay` | false | Display native binding status. |
 
-Increase radius gradually if sparse points miss contact; excessive radius can hold breasts away from the visible surface. The sphere-contact limit is not a universal maximum for movement: capsule and plane contacts follow different native constraint paths and the game's spring behavior.
-
-The 0.1.x surface-projection settings are no longer used. Changing old strength, compression, contact iterations, coverage, response, speed, or added-offset keys will not tune this solver.
-
-Turning the master switch off detaches this plugin's obstacles and restores its radius/limit overrides. It does not rewrite running native vertex attributes. Stock breast teams have no original obstacle list; interaction with another mod adding its own breast obstacles requires separate testing.
+The radius multiplier replaces `BreastRadiusHeightRatio` from 0.2.x. Start with
+the default, then adjust gradually. Extreme shapes or poses can still clip.

@@ -4,5 +4,5 @@
     <ImplicitUsings>enable</ImplicitUsings><Nullable>disable</Nullable>
     <CheckEolTargetFramework>false</CheckEolTargetFramework><NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
-  <ItemGroup><Compile Include="../../src/NativeSpringBinding.cs" Link="Production/NativeSpringBinding.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NativeSpringBinding.cs" Link="Production\NativeSpringBinding.cs" /><Compile Include="..\..\src\BreastSurfaceFit.cs" Link="Production\BreastSurfaceFit.cs" /></ItemGroup>
 </Project>
