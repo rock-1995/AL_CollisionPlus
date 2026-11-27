@@ -1,6 +1,7 @@
 # AL Collision Plus
 
 Native breast collision for AmanatsuLocation. Requires BepInEx 6 IL2CPP.
+BepInEx Configuration Manager is optional and provides the F1 settings menu.
 
 1. Close the game and extract the [release ZIP](https://github.com/rock-1995/AL_CollisionPlus/releases/latest) into the game folder.
 2. Restart and use BepInEx Configuration Manager to toggle abdomen, body, ground, or hair contact.
